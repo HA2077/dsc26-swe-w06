@@ -12,12 +12,14 @@ def estimate_cost_usd(provider: LLMProvider, prompt: str, max_output_tokens: int
 
     (count_tokens(prompt) * price_in_per_mtok + max_output_tokens * price_out_per_mtok) / 1e6
     """
-    raise NotImplementedError
+    return (provider.count_tokens(prompt) * provider.price_in_per_mtok
+            + max_output_tokens * provider.price_out_per_mtok) / 1_000_000
 
 
 def actual_cost_usd(provider: LLMProvider, prompt: str, output_tokens: int) -> float:
     """The same formula with the tokens actually produced."""
-    raise NotImplementedError
+    return (provider.count_tokens(prompt) * provider.price_in_per_mtok
+            + output_tokens * provider.price_out_per_mtok) / 1_000_000
 
 
 class DailyBudget:
@@ -25,17 +27,25 @@ class DailyBudget:
     starts from zero."""
 
     def __init__(self, limit_usd: float, today: Callable[[], date] = lambda: datetime.now(UTC).date()):
-        raise NotImplementedError
+        self._limit_usd = limit_usd
+        self._today = today
+        self._spent: dict[tuple[str, date], float] = {}
 
     def remaining(self, tenant: str) -> float:
         """How much `tenant` can still spend today."""
-        raise NotImplementedError
+        return self._limit_usd - self._spent.get((tenant, self._today()), 0.0)
 
     def try_reserve(self, tenant: str, amount: float) -> bool:
         """Reserve `amount` for `tenant` and return True, only if amount <= remaining(tenant)."""
-        raise NotImplementedError
+        key = (tenant, self._today())
+        spent = self._spent.get(key, 0.0)
+        if amount > self._limit_usd - spent:
+            return False
+        self._spent[key] = spent + amount
+        return True
 
     def settle(self, tenant: str, reserved: float, actual: float) -> None:
         """Replace a reservation with the actual cost (actual may be 0, or more or less than
         reserved)."""
-        raise NotImplementedError
+        key = (tenant, self._today())
+        self._spent[key] = self._spent.get(key, 0.0) - reserved + actual
